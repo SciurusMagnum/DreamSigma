@@ -1,0 +1,90 @@
+Detection Sigma rule:
+title: Golden Ticket Usage (T1558.001)
+id:    3bafb556-661a-4a14-9a2b-e0b7c2c8f4b4 
+status:      experimental 
+description: |
+  Detects Kerberos service tickets which were likely forged with a “Golden Ticket”.
+Either using an RC4 hash, has blank fields, or uses anomnalous values (users, SIDs, etc)
+author: tomeron12@gmail.com
+date:  15/05/2025
+references:
+-	https://attack.mitre.org/datasources/DS0028/
+-	https://adsecurity.org/?p=1640
+-	https://adsecurity.org/?p=483
+-	
+tags:.
+  - attack.credential_access
+  - attack.t1558.001
+
+logsource:                   # Where the event comes from
+  product: windows 
+  service: security 
+  category: logon # (optional)
+  definition: |              # (optional) extra prerequisites in prose
+
+detection:                   # *single* nested dictionary
+  kerebros_login:                #   ⎫ named "lists" of field-value pairs
+    EventID: 4624            
+    AuthenticationPackageName: Kerberos
+
+  guid_zero:
+    LogonGuid: '00000000-0000-0000-0000-000000000000'
+  
+  keylen_zero:
+    KeyLength: 0
+
+  bad_lm_package:          
+    LmPackageName|not: '-'
+
+  strange_process:         
+    LogonProcessName:
+      - User32
+      - ''
+
+  high_value_sid_mismatch: 
+    TargetUserSid:
+      - S-1-5-21-*-500      # Administrator
+      - S-1-5-21-*-512      # Domain Admins
+      - S-1-5-21-*-519      # Enterprise Admins
+    TargetUserName|not:
+      - Administrator
+      - DOMAIN ADMINS
+      - ENTERPRISE ADMINS
+
+  rc4_ticket:
+    EventID: 4769
+    TicketEncryptionType: 0x17
+
+   # -- filters ---------------------------
+  filter_fp:
+    TargetUserName|endswith: '$'      
+  
+  fp_service_logon:                 # system service start-up often has 0-GUID
+    LogonType: 5
+
+  fp_local_system:                  # LOCAL SYSTEM logon on boot
+    TargetUserSid: S-1-5-18
+  condition: |
+      (rc4_ticket and not filter_fp) or
+
+      (
+      kerb_logon
+      and (
+          zero_guid
+        or keylen_zero
+        or (bad_lm_package and strange_process)
+        or high_value_sid_mismatch
+        )
+      and not fp_service_logon
+      and not fp_local_system
+      )
+
+
+
+level:   low | medium | high | critical
+falsepositives:
+  - Legacy RC4 service accounts
+  - Smart-card logon on mixed-mode domains
+---
+
+
